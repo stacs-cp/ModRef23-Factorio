@@ -1,0 +1,186 @@
+language ESSENCE' 1.0
+
+$ Given an area to build in and a set of reserved spaces,
+$ find a theoretical maximum number of assemblers and inserters using bin-packing
+
+$ ==========
+$ Parameters
+$ ==========
+
+$ ----------
+$ Directions
+$ ----------
+letting horizontal = 1
+letting vertical   = 2
+
+$ --------
+$ Bin Size
+$ --------
+given binW : int(3..)
+given binH : int(3..)
+
+letting xs be domain int(1..binW)
+letting ys be domain int(1..binH)
+
+letting area = binW * binH
+
+$ ---------
+$ Logistics
+$ ---------
+given num_assemblers : int(1..)
+letting assemblers be domain int(1..num_assemblers)
+
+given inserters : matrix indexed by [assemblers] of int(2..12) 
+given reserved  : matrix indexed by [ys, xs] of int(0..1)
+
+$ Previous solutions
+given num_attempts : int(1..)
+given attempts : matrix indexed by [int(1..num_attempts), int(1..area)] of int(0..1)
+
+$ ----------
+$ Conditions
+$ ----------
+where
+    $ Minimum build area is 3x5
+    max(binW, binH) >= 5
+
+$ ==================
+$ Decision Variables
+$ ==================
+
+    $ Find the assembler and inserter layout
+    find assembler_layout : matrix indexed by [ys, xs] of int(0..1)
+    find inserter_layout  : matrix indexed by [ys, xs] of int(0..2)
+
+    $ Map assemblers to their index in inserters
+    find positions : matrix indexed by [assemblers] of int(1..area)
+    
+
+$ =========
+$ Objective
+$ =========
+
+$ No objective required - we only want to see if a valid packing exists
+
+$ ===========
+$ Constraints
+$ ===========
+
+such that
+
+    $ ----------------------
+    $ Previous Attempt rules
+    $ ----------------------
+
+    $ This solution cannot be the same as a previous solution
+    forall n : int(1..num_attempts) .
+        flatten(assembler_layout) <lex attempts[n, ..]
+        \/
+        flatten(assembler_layout) >lex attempts[n, ..],
+
+
+    $ -------------
+    $ Factory rules
+    $ -------------
+
+    $ Assemblers cannot overlap with each other or reserved spaces
+    forall y : ys .
+        forall x : xs . 
+            reserved[y, x]
+            +
+            (sum i : int(max(1, y - 2)..y) . sum j : int(max(1, x - 2)..x) . assembler_layout[i, j])
+            +
+            (inserter_layout[y, x] > 0)
+            <= 1,
+
+
+    $ ---------------
+    $ Assembler rules
+    $ ---------------
+
+    $ Assemblers may not be on the bottom 2 rows or rightmost 2 columns (they are 3x3)
+    forall y : ys . assembler_layout[y, binW - 0] = 0,
+    forall y : ys . assembler_layout[y, binW - 1] = 0,
+    forall x : xs . assembler_layout[binH - 0, x] = 0,
+    forall x : xs . assembler_layout[binH - 1, x] = 0,
+
+    $ Map layout to positions
+    forall y : ys .
+        forall x : xs .
+            assembler_layout[y, x] > 0 <->
+                exists i : assemblers .
+                    positions[i] = ((y - 1) * binW) + x,
+
+    $ Assemblers must be given unique positions
+    allDiff(positions),
+
+    $ Assemblers must have the number of adjacent inserters given by their assignment
+    forall i : assemblers . (
+        exists y : ys . y = ((positions[i] - 1) / binW) + 1
+        /\
+        exists x : xs . x = positions[i] % binW
+        /\
+        (
+            (sum j : int(y..min(binH, y + 2)) .
+                (inserter_layout[j, max(1, x - 1)] = horizontal)    $ Left
+                +
+                (inserter_layout[j, min(binH, x + 3)] = horizontal) $ Right
+            )
+            +
+            (sum j : int(x..min(binW, x + 2)) .
+                (inserter_layout[max(1, y - 1), j] = vertical)      $ Up
+                +
+                (inserter_layout[min(binH, y + 3), j] = vertical)   $ Down
+            )
+        ) = inserters[i]
+    ),
+
+
+    $ --------------
+    $ Inserter rules
+    $ --------------
+
+    $ Inserters must not face outside the area
+    forall x : xs . 
+        inserter_layout[1, x]    != vertical /\
+        inserter_layout[binH, x] != vertical,
+
+    forall y : ys .
+        inserter_layout[y, 1]    != horizontal /\
+        inserter_layout[y, binW] != horizontal,
+
+    $ Inserters must be connected to an assembler on at least one side
+    forall y : ys .
+        forall x : xs .
+            inserter_layout[y, x] = horizontal -> (
+                exists i : int(max(1, y - 2)..y) . 
+                    assembler_layout[i, x - 3] > 0  $ Left
+                    \/
+                    assembler_layout[i, x + 1] > 0  $ Right
+            ),
+
+    forall y : ys .
+        forall x : xs .
+            inserter_layout[y, x] = vertical -> (
+                exists i : int(max(1, x - 2)..x) . 
+                    assembler_layout[y - 3, i] > 0  $ Up
+                    \/
+                    assembler_layout[y + 1, i] > 0  $ Down
+            ),
+
+    $ Inserters cannot be connected to an inserter on either side
+    forall y : ys .
+        forall x : xs .
+            inserter_layout[y, x] = horizontal -> (
+                inserter_layout[y, x - 1] = 0  $ Left
+                /\
+                inserter_layout[y, x + 1] = 0  $ Right
+            ),
+
+    forall y : ys .
+        forall x : xs .
+            inserter_layout[y, x] = vertical -> (
+                inserter_layout[y - 1, x] = 0  $ Up
+                /\
+                inserter_layout[y + 1, x] = 0  $ Down
+            )

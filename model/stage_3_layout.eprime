@@ -1,0 +1,453 @@
+language ESSENCE' 1.0
+
+$ ==========
+$ Parameters
+$ ==========
+
+$ ----------
+$ Directions
+$ ----------
+letting north = 1
+letting south = 2
+letting east  = 3
+letting west  = 4
+letting directions be domain int(1..4)
+
+$ Allow the opposite direction to be found given the current direction
+letting opposite = [south, north, west, east]
+
+$ Construct arrays such that map[y + dy[map[y, x]], x + dx[map[y, x]]] outputs the space map[y, x] points to
+letting dx = [0, 0, 1, -1]
+letting dy = [-1, 1, 0, 0]
+
+$ Construct arrays such that adjacent assemblers can be searched for
+$ For 2 spaces north and west of an object, an assembler cannot be present since they are 3x3, so triple those axes from dy and dx
+letting adx = [0, 0, 1, -3]
+letting ady = [-3, 1, 0, 0]
+
+$ --------
+$ Bin Size
+$ --------
+given binW : int(3..)
+given binH : int(3..)
+
+letting area = binW * binH
+
+letting xs be domain int(1..binW)
+letting ys be domain int(1..binH)
+
+$ -------
+$ Recipes
+$ -------
+given num_items : int(2..)
+letting items be domain int(1..num_items)
+
+given recipes : matrix indexed by [items, items] of int(0..)
+
+$ ---------
+$ Logistics
+$ ---------
+$ Assemblers and inserters
+given num_assemblers : int(1..)
+letting assembler_ids be domain int(1..num_assemblers)
+
+given assembler_layout  : matrix indexed by [ys, xs] of int(0..1)
+given assembler_recipes : matrix indexed by [assembler_ids] of items
+given inserters_in      : matrix indexed by [assembler_ids, items] of int(0..12)
+given inserters_out     : matrix indexed by [assembler_ids] of int(0..12)
+
+$ Input/output spaces
+given inputs  : matrix indexed by [ys, xs] of int(0..num_items)
+given outputs : matrix indexed by [ys, xs] of int(0..1)
+given out_item : items
+
+$ ----------
+$ Conditions
+$ ----------
+where max(binW, binH) >= 5
+
+$ ==================
+$ Decision Variables
+$ ==================
+    
+    $ --------------
+    $ Factory Layout
+    $ --------------
+
+    $ Find assembler locations and recipes
+    find assemblers : matrix indexed by [ys, xs] of int(0..num_items) 
+
+    $ Find the conveyor locations and directions
+    find conveyors : matrix indexed by [ys, xs] of int(0..4)
+
+    $ Find inserter locations and directions
+    find inserters : matrix indexed by [ys, xs] of int(0..4)
+
+    $ ---------
+    $ Logistics
+    $ ---------
+
+    $ Find which assemblers correspond to each entry in assembler_recipes, inserter_in, and inserters_out 
+    find assignments : matrix indexed by [assembler_ids] of int(1..area)
+
+    $ Find which items are present on each space
+    find carrying : matrix indexed by [ys, xs] of int(0..num_items)
+
+    $ Find all routes in the transport network
+    $ Assume routes are never longer than (w + h)
+    find routes : matrix indexed by [ys, xs] of int(0..(binW + binH))
+
+$ =========
+$ Objective
+$ =========
+
+$ Minimise the number of conveyors and inserters
+$ Weight inserters slightly more than conveyors to prevent unnecessary inserter-conveyor-inserter chains 
+minimising
+    sum y : ys.
+        sum x : xs .
+            (10 * (conveyors[y, x] > 0))
+            +
+            (11 * (inserters[y, x] > 0))
+
+$ ===========
+$ Constraints
+$ ===========
+
+such that
+
+    $ -------------
+    $ Factory rules
+    $ -------------
+
+    $ Conveyors, inserters, and assemblers cannot overlap
+    forall y : ys .
+        forall x : xs . 
+            (conveyors[y, x] > 0) +
+            (inserters[y, x] > 0) +
+            (sum i : int(max(1, y - 2)..y) . sum j : int(max(1, x - 2)..x) . (assemblers[i, j] > 0))
+            <= 1,
+
+
+    $ ---------------
+    $ Assembler rules
+    $ ---------------
+
+    $ Follow the given assembler layout
+    forall y : ys .
+        forall x : xs .
+            assembler_layout[y, x] > 0 <-> (
+                assemblers[y, x] > 0
+                /\
+                (exists i : assembler_ids . assignments[i] = ((y - 1) * binW) + x)
+            ),
+
+    $ Each assembler assignment must be unique
+    allDiff(assignments),
+
+    $ Assign ids to each assembler
+    $ Each (recipe, inserters_in, inserters_out) combination must be satisfied by an assembler
+    forall y : ys .
+        forall x : xs .
+            assembler_layout[y, x] > 0 <-> (
+                exists i : assembler_ids .
+                    $ Position
+                    (assignments[i] = ((y - 1) * binW) + x)
+                    /\
+                    $ Recipe
+                    assemblers[y, x] = assembler_recipes[i]
+                    /\ 
+                    $ Incoming inserters
+                    (forall item : items . (
+                        sum dir : directions .
+                            ( $ North and South
+                                (dy[dir] != 0)
+                                *
+                                sum j : int(x..x + 2) . (
+                                    (inserters[y - ady[opposite[dir]], j] = opposite[dir])
+                                    *
+                                    (carrying[y - ady[opposite[dir]], j] = item)
+                                )
+                            )
+                            +
+                            ( $ East and West
+                                (dx[dir] != 0)
+                                *
+                                sum j : int(y..y + 2) . (
+                                    (inserters[j, x - adx[opposite[dir]]] = opposite[dir])
+                                    *
+                                    (carrying[j, x - adx[opposite[dir]]] = item)
+                                )
+                            )
+                    ) = inserters_in[i, item])
+                    /\
+                    $ Outgoing inserters
+                    ((sum dir : directions .
+                        ( $ North and South
+                            (dy[dir] != 0)
+                            *
+                            sum j : int(x..x + 2) . (
+                                (inserters[y - ady[opposite[dir]], j] = dir)
+                                *
+                                (carrying[y - ady[opposite[dir]], j] = assemblers[y, x])
+                            )
+                        )
+                        +
+                        ( $ East and West
+                            (dx[dir] != 0)
+                            *
+                            sum j : int(y..y + 2) . (
+                                (inserters[j, x - adx[opposite[dir]]] = dir)
+                                *
+                                (carrying[j, x - adx[opposite[dir]]] = assemblers[y, x])
+                            )
+                        )
+                    ) = inserters_out[i])
+            ),                
+
+
+    $ --------------
+    $ Inserter rules
+    $ --------------
+
+    $ Inserters must not take input or send output outside the area
+    forall x : xs . 
+        inserters[1, x]    != north /\
+        inserters[1, x]    != south /\
+        inserters[binH, x] != north /\
+        inserters[binH, x] != south,
+
+    forall y : ys .
+        inserters[y, 1]    != east /\
+        inserters[y, 1]    != west /\
+        inserters[y, binW] != east /\
+        inserters[y, binW] != west,
+
+    $ Inserters cannot output to input spaces
+    forall y : ys .
+        forall x : xs .
+            inserters[y, x] > 0 ->
+                inputs[y + dy[inserters[y, x]], x + dx[inserters[y, x]]] = 0,
+
+    $ Inserters must be connected to a conveyor or an assembler on each side
+    $ Conveyor directions should not oppose the direction of the inserter
+    forall y : ys .
+        forall x : xs .
+            inserters[y, x] > 0 -> (
+                forall dir : directions .
+                    $ Ignore directions which are perpendicular to the inserter
+                    (inserters[y, x] != dir /\ inserters[y, x] != opposite[dir])
+                    \/
+                    $ Check for a conveyor
+                    (conveyors[y + dy[dir], x + dx[dir]] > 0 /\ conveyors[y + dy[dir], x + dx[dir]] != opposite[inserters[y, x]])
+                    \/
+                    $ Check for an assembler on the appropriate axis
+                    (dy[dir] != 0 /\ exists i : int(max(1, x - 2)..x) . assemblers[y + ady[dir], i] > 0) \/
+                    (dx[dir] != 0 /\ exists i : int(max(1, y - 2)..y) . assemblers[i, x + adx[dir]] > 0)
+            ),
+
+
+    $ --------------
+    $ Conveyor rules
+    $ --------------
+
+    $ All item inputs and outputs must have conveyors on them
+    forall y : ys .
+        forall x : xs .
+            (inputs[y, x] + outputs[y, x]) > 0 -> conveyors[y, x] > 0,
+
+    $ Conveyors must take input from somewhere unless the space itself is an input
+    forall y : ys .
+        forall x : xs .
+            (conveyors[y, x] > 0 /\ inputs[y, x] = 0) -> (
+                exists dir : directions . (
+                    (conveyors[y + dy[dir], x + dx[dir]] = opposite[dir] /\ conveyors[y, x] != dir) \/ 
+                    inserters[y + dy[dir], x + dx[dir]] = opposite[dir]               
+                )
+            ),
+    
+    $ Conveyors must send their output somewhere unless the space itself is an output
+    $ The space receiving the output must be further along the route than this 
+    forall y : ys .
+        forall x : xs .
+            (conveyors[y, x] > 0 /\ outputs[y, x] = 0) -> (
+                exists dir : directions . (
+                    ( $ Check for a non-opposing conveyor
+                        conveyors[y, x] = dir /\
+                        conveyors[y + dy[dir], x + dx[dir]] > 0 /\
+                        conveyors[y + dy[dir], x + dx[dir]] != opposite[dir]
+                    )
+                    \/
+                    ( $ Check for an inserter taking input from this conveyor
+                        conveyors[y, x] != opposite[dir] /\
+                        inserters[y + dy[dir], x + dx[dir]] = dir
+                    )
+                )
+            ),
+
+
+    $ -----------
+    $ Route rules
+    $ -----------
+
+    $ Conveyors and inserters must be part of a route
+    forall y : ys .
+        forall x : xs .
+            routes[y, x] > 0 <-> (conveyors[y, x] > 0 \/ inserters[y, x] > 0),
+
+    $ Conveyors on input tiles are route sources
+    forall y : ys .
+        forall x : xs .
+            inputs[y, x] > 0 -> routes[y, x] = 1,
+
+    $ Inserters always increment the route number of their input space
+    forall y : ys .
+        forall x : xs .
+            inserters[y, x] > 0 ->
+                routes[y, x] = routes[y + dy[opposite[inserters[y, x]]], x + dx[opposite[inserters[y, x]]]] + 1,
+    
+    $ Conveyors increment the value of the longest incoming route
+    forall y : ys .
+        forall x : xs .
+            conveyors[y, x] > 0 -> (
+                forall dir : directions . (
+                    routes[y + dy[dir], x + dx[dir]] > 0
+                    /\
+                    (
+                        conveyors[y + dy[dir], x + dx[dir]] = opposite[dir]
+                        \/
+                        inserters[y + dy[dir], x + dx[dir]] = opposite[dir]
+                    )
+                ) -> (
+                    routes[y, x] > routes[y + dy[dir], x + dx[dir]]
+                )
+            ),
+
+    forall y : ys .
+        forall x : xs .
+            (conveyors[y, x] > 0 /\ inputs[y, x] = 0) -> (
+                exists dir : directions . (
+                    routes[y + dy[dir], x + dx[dir]] > 0
+                    /\
+                    (
+                        conveyors[y + dy[dir], x + dx[dir]] = opposite[dir]
+                        \/
+                        inserters[y + dy[dir], x + dx[dir]] = opposite[dir]
+                    )
+                ) -> (
+                    routes[y, x] = routes[y + dy[dir], x + dx[dir]] + 1
+                )
+            ),
+
+
+    $ --------------
+    $ Carrying rules
+    $ --------------
+
+    $ Inputs and outputs always carry their item
+    forall y : ys .
+        forall x : xs .
+            (inputs[y, x]  > 0 -> carrying[y, x] = inputs[y, x]) /\
+            (outputs[y, x] > 0 -> carrying[y, x] = out_item),
+
+    $ All factory objects must carry an item, and items cannot be carried by unoccupied spaces
+    forall y : ys .
+        forall x : xs .
+            carrying[y, x] > 0 <-> (
+                (conveyors[y, x] > 0) +
+                (inserters[y, x] > 0) +
+                (sum i : int(max(1, y - 2)..y) . sum j : int(max(1, x - 2)..x) . (assemblers[i, j] > 0))
+            ) > 0,
+
+    $ Conveyors carry the items passed to them
+    forall y : ys .
+        forall x : xs . (
+            conveyors[y, x] > 0 -> (
+                forall dir : directions . (
+                    (conveyors[y + dy[dir], x + dx[dir]] = opposite[dir] /\ dir != conveyors[y, x])
+                    \/
+                    (inserters[y + dy[dir], x + dx[dir]] = opposite[dir])
+                ) -> (
+                    carrying[y, x] = carrying[y + dy[dir], x + dx[dir]]
+                )
+            )
+        ),
+
+    $ Inserters carry whatever is on their input space
+    forall y : ys .
+        forall x : xs .
+            inserters[y, x] > 0 ->
+                carrying[y, x] = carrying[y + dy[opposite[inserters[y, x]]], x + dx[opposite[inserters[y, x]]]],
+
+    $ Assembler spaces (all 3x3) carry the assembler's product
+    forall y : ys .
+        forall x : xs .       
+            assemblers[y, x] > 0 ->
+                forall ay : int(y..y + 2) .
+                    forall ax : int(x..x + 2) .
+                        carrying[ay, ax] = assemblers[y, x],
+
+
+    $ ------------
+    $ Recipe rules
+    $ ------------
+
+    $ Assemblers can only produce an item if a recipe exists for it
+    forall y : ys .
+        forall x : xs .
+            assemblers[y, x] > 0 -> sum(recipes[assemblers[y, x], ..]) > 0,
+
+    $ If an inserter outputs into an assembler, the assembler must want the inserter's item
+    forall y : ys .
+        forall x : xs .
+            assemblers[y, x] > 0 -> (
+                forall dir : directions .
+                ( $ North and South
+                    dy[dir] != 0 /\ forall i : int(x..x + 2) . (
+                        inserters[y - ady[opposite[dir]], i] = opposite[dir] ->
+                            recipes[assemblers[y, x], carrying[y - ady[opposite[dir]], i]] > 0
+                    )
+                )
+                \/
+                ( $ East and West
+                    dx[dir] != 0 /\ forall i : int(y..y + 2) . (
+                        inserters[i, x - adx[opposite[dir]]] = opposite[dir] ->
+                            recipes[assemblers[y, x], carrying[i, x - adx[opposite[dir]]]] > 0
+                    )
+                )
+            ),
+
+    $ Assemblers can only produce an item if adjacent inserters provide all necessary ingredient(s)
+    forall y : ys .
+        forall x : xs .
+            assemblers[y, x] > 0 -> (
+                forall item : items . (
+                    $ Ignore the recipe's product
+                    item = assemblers[y, x]
+                    \/
+                    $ Ignore all other items not needed by the recipe
+                    recipes[assemblers[y, x], item] = 0
+                    \/
+                    $ Ensure all required items are provided by an inserter
+                    exists dir : directions .
+                    ( $ North and South
+                        dy[dir] != 0
+                        /\ 
+                        (exists i : int(x..x + 2) . 
+                            (inserters[y - ady[opposite[dir]], i] = opposite[dir]
+                            /\
+                            carrying[y - ady[opposite[dir]], i] = item)
+                        ) 
+                    )
+                    \/
+                    ( $ East and West
+                        dx[dir] != 0
+                        /\
+                        (exists i : int(y..y + 2) . 
+                            (inserters[i, x - adx[opposite[dir]]] = opposite[dir]
+                            /\
+                            carrying[i, x - adx[opposite[dir]]] = item)
+                        ) 
+                    )
+                )
+            )

@@ -1,0 +1,49 @@
+language ESSENCE' 1.0
+
+$ Bin Size
+letting binW = 5
+letting binH = 6
+
+$ Items
+letting num_items = 2
+letting out_item  = 2
+
+letting input_items = [
+    [1, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0]
+]
+
+letting input_qtys = [
+    [450, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0]
+]
+
+letting outputs = [
+    [0, 0, 0, 0, 1],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0]
+]
+
+$ Recipes and Rates
+letting recipe_qtys = [
+    [0, 0], $ Item 1 is a base material
+    [2, 1]  $ Item 2 can be produced from item 1 in ratio 2:1
+]
+
+letting recipe_rates = [
+    0,
+    120     $ 0.5s (120 per minute)
+]
+
+letting inserter_rate = 50

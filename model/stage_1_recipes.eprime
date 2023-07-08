@@ -1,0 +1,261 @@
+language ESSENCE' 1.0
+
+$ Given possible recipes, input items, and a desired output,
+$ assign recipes to assemblers to maximise the production of the output
+$ accounting for the transfer rate of inserters
+
+$ ==========
+$ Parameters
+$ ==========
+
+$ --------
+$ Bin Size
+$ --------
+given area : int(0..)
+
+$ ---------
+$ Logistics
+$ ---------
+$ Assemblers
+given max_assemblers : int(1..)
+letting assemblers be domain int(1..max_assemblers)
+
+$ Inserters
+given inserter_rate : int(1..)
+
+$ Items
+given num_items : int(2..)
+letting items be domain int(1..num_items)
+
+given inputs : matrix indexed by [items] of int(0..)
+given output : items
+
+$ Recipes
+given recipe_qtys  : matrix indexed by [items, items] of int(0..)
+given recipe_rates : matrix indexed by [items] of int(0..)
+given max_rate     : int(0..)
+
+$ Rates
+letting max_production  = max([(recipe_qtys[i, i] * recipe_rates[i]) | i : items])
+letting max_consumption = max([(recipe_qtys[i, j] * recipe_rates[i]) | i : items, j : items, i != j])
+
+letting max_inserters_in  = (max_consumption / inserter_rate) + ((max_consumption % inserter_rate) != 0)
+letting max_inserters_out = (max_production  / inserter_rate) + ((max_production  % inserter_rate) != 0)
+
+$ Previous solutions
+given num_attempts : int(1..)
+given assembler_attempts : matrix indexed by [int(1..num_attempts), assemblers] of int(0..num_items)
+given inserter_attempts  : matrix indexed by [int(1..num_attempts), assemblers] of int(0..12)
+
+$ ----------
+$ Conditions
+$ ----------
+where
+    $ The output item's recipe must be valid
+    recipe_qtys[output, output] > 0
+    /\
+    recipe_rates[output] > 0
+
+$ ==================
+$ Decision Variables
+$ ==================
+
+    $ Find how many assemblers there are, and the rate at which each assembler can fulfil its recipe
+    find num_assemblers    : assemblers
+    find assembler_recipes : matrix indexed by [assemblers] of int(0..num_items)
+    find assembler_rates   : matrix indexed by [assemblers] of int(0..max_rate)
+
+    $ Find how many inserters are given to each assembler
+    find inserters_in  : matrix indexed by [assemblers, items] of int(0..max_inserters_in)
+    find inserters_out : matrix indexed by [assemblers] of int(0..max_inserters_out)
+
+    $ Track how much of each item is consumed by the factory
+    find consuming : matrix indexed by [assemblers, items] of int(0..max_consumption)
+
+$ =========
+$ Objective
+$ =========
+
+$ Maximise the output quantity of the requested item, breaking ties by choosing the solution with the smallest footprint
+maximising 
+    (sum i : assemblers . (assembler_rates[i] * (assembler_recipes[i] = output)))
+    -
+    (sum i : assemblers .
+        (9 * (assembler_recipes[i] > 0))
+        +
+        (sum item : items . inserters_in[i, item])
+        +
+        inserters_out[i]
+    )
+
+$ ===========
+$ Constraints
+$ ===========
+
+such that
+
+    $ ----------------------
+    $ Previous Attempt rules
+    $ ----------------------
+
+    $ This solution cannot be the same as a previous solution
+    forall n : int(1..num_attempts) .
+        exists i : assemblers .
+            assembler_recipes[i] != assembler_attempts[n, i]
+            \/
+            (sum item : items . inserters_in[i, item]) + inserters_out[i] != inserter_attempts[n, i],
+
+    
+    $ -------------
+    $ Factory rules
+    $ -------------
+
+    $ The area must not be exceeded
+    area > (sum i : assemblers .
+        (9 * (assembler_recipes[i] > 0))
+        +
+        (sum item : items . inserters_in[i, item])
+        +
+        inserters_out[i]
+    ), 
+
+
+    $ ---------------
+    $ Assembler rules
+    $ ---------------
+
+    $ Calculate the number of active assemblers
+    num_assemblers = sum i : assemblers . (assembler_recipes[i] > 0),
+
+    $ Any inactive assemblers are stored at the end of the matrix
+    forall i : assemblers .
+        assembler_recipes[i] = 0 <-> i > num_assemblers, 
+
+    $ If an assembler is active it must have a non-zero production rate
+    forall i : assemblers .
+        assembler_recipes[i] > 0 <-> assembler_rates[i] > 0,
+
+    $ Assemblers can only produce an item if a recipe exists for it
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (
+            recipe_qtys[assembler_recipes[i], assembler_recipes[i]] > 0
+            /\
+            recipe_rates[assembler_recipes[i]] > 0
+        ),
+
+    $ The requested output of the factory must be produced by at least one assembler
+    exists i : assemblers . assembler_recipes[i] = output,
+
+
+    $ --------------
+    $ Inserter rules
+    $ --------------
+
+    $ Inactive assemblers have no input inserters, active assemblers must have input inserters
+    forall i : assemblers .
+        assembler_recipes[i] = 0 <-> (sum item : items . inserters_in[i, item]) = 0,
+
+    $ Inactive assemblers have no output inserters, active assemblers must have output inserters
+    forall i : assemblers .
+        assembler_recipes[i] = 0 <-> inserters_out[i] = 0,
+
+    $ There may not be more than 12 inserters attached to a given assembler
+    forall i : assemblers .
+        (sum item : items . inserters_in[i, item]) + inserters_out[i] <= 12,
+
+
+    $ ------------------
+    $ Input/Output rules
+    $ ------------------
+
+    $ If an item is produced by an assembler, all of its ingredients need to be produced unless they are provided as inputs
+    forall item : items . (
+        exists i : assemblers . 
+            assembler_recipes[i] = item
+        ) -> (
+            forall ing : items . (
+                (ing != item /\ recipe_qtys[item, ing] > 0 /\ inputs[ing] = 0) ->
+                    (exists i : assemblers . 
+                        assembler_recipes[i] = ing
+                    )
+            )
+        ),
+
+    $ If an item is required by an assembler, all of its ingredients must be provided by an inserter
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (
+            forall item : items .
+                (item != assembler_recipes[i] /\ recipe_qtys[assembler_recipes[i], item] > 0) <-> (inserters_in[i, item] > 0)
+        ),
+
+
+    $ ----------------------------
+    $ Production/Consumption rules
+    $ ----------------------------
+
+    $ Items must be produced in equal or greater quantities than they are consumed
+    forall item : items . (
+            inputs[item]
+            +
+            (sum i : assemblers . 
+                (assembler_recipes[i] = item) * assembler_rates[i] * recipe_qtys[item, item]
+            ) 
+            >= (sum i : assemblers . consuming[i, item])
+        ),
+
+    $ Items cannot be produced faster than their recipe allows
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (assembler_rates[i] <= recipe_rates[assembler_recipes[i]]),
+
+    $ Items cannot be produced faster than they can be removed from the assembler
+    $ Additionally assume that each inserter is working at full efficiency
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (
+            (assembler_rates[i] * recipe_qtys[assembler_recipes[i], assembler_recipes[i]]) <= inserter_rate * inserters_out[i]
+            /\
+            (assembler_rates[i] * recipe_qtys[assembler_recipes[i], assembler_recipes[i]]) > inserter_rate * (inserters_out[i] - 1)
+        ),
+
+    $ Items cannot be consumed faster than they can be provided to the assembler
+    $ Additionally assume that each inserter is working at full efficiency
+    forall i : assemblers .
+        forall item : items .
+            consuming[i, item] <= inserter_rate * inserters_in[i, item]
+            /\
+            consuming[i, item] > inserter_rate * (inserters_in[i, item] - 1),
+
+    $ Items are consumed in proportion to the rate of the recipe consuming them
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (
+            forall item : items .
+                (item != assembler_recipes[i] /\ recipe_qtys[assembler_recipes[i], item] > 0) -> (
+                    assembler_rates[i] <= consuming[i, item] / recipe_qtys[assembler_recipes[i], item]
+                ) 
+        ),
+
+    $ Calculate item consumption rate based on the recipe rate
+    forall i : assemblers .
+        (sum item : items . consuming[i, item]) > 0 <-> assembler_recipes[i] > 0,
+
+    forall i : assemblers .
+        assembler_recipes[i] > 0 -> (
+            forall item : items .
+                consuming[i, item] = assembler_rates[i] * recipe_qtys[assembler_recipes[i], item] * (item != assembler_recipes[i])
+        ),
+
+    
+    $ -----------------
+    $ Symmetry Breaking
+    $ -----------------
+
+    $ Active assemblers are stored in lexicographical recipe order
+    forall i : assemblers .
+        i < num_assemblers -> assembler_recipes[i] <= assembler_recipes[i + 1],
+
+    $ Assemblers with the same recipe have their inserter assignments stored in order
+    forall i : assemblers .
+        (i < num_assemblers /\ assembler_recipes[i] = assembler_recipes[i + 1]) -> (
+            (sum item : items . inserters_in[i, item]) + inserters_out[i] 
+            <= 
+            (sum item : items . inserters_in[i + 1, item]) + inserters_out[i + 1]
+        )

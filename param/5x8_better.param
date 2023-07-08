@@ -1,0 +1,59 @@
+language ESSENCE' 1.0
+
+$ Bin Size
+letting binW = 5
+letting binH = 8
+
+$ Items
+letting num_items = 4
+letting out_item  = 4
+
+letting input_items = [
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [1, 0, 2, 0, 0]
+]
+
+letting input_qtys = [
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [450, 0, 450, 0, 0]
+]
+
+letting outputs = [
+    [1, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0]
+]
+
+$ Recipes and Rates
+letting recipe_qtys = [
+    [0, 0, 0, 0], $ Item 1 is a base material
+    [0, 0, 0, 0], $ Item 2 is a base material
+    [2, 1, 1, 0], $ Item 3 is produced by items 1 and 2 in ratio 2:1:1
+    [0, 1, 1, 1]  $ Item 4 is produced by items 2 and 3 in ratio 1:1:1
+]
+
+letting recipe_rates = [
+    0,
+    0,
+    60,     $ 1s (60 per minute)
+    30      $ 2s (30 per minute)
+]
+
+letting inserter_rate = 50
